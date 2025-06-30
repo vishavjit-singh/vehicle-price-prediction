@@ -29,7 +29,7 @@ pip install pandas>=1.5.0 numpy>=1.23.0 scikit-learn>=1.2.0 matplotlib>=3.6.0 jo
 
 Usage
 
-Clone the repository:git clone https://github.com/your-username/vehicle-price-prediction.git
+Clone the repository:git clone https://github.com/vishavjit-singh/vehicle-price-prediction.git
 
 
 Navigate to the project directory:cd vehicle-price-prediction
