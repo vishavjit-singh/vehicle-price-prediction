@@ -1,67 +1,121 @@
-Vehicle Price Prediction Project
-Overview
-This repository contains a Jupyter Notebook (vehicle_price_prediction.ipynb) that implements a machine learning model to predict vehicle prices based on various features such as make, model, year, mileage, and more. The solution uses a RandomForestRegressor from scikit-learn and includes data preprocessing, feature engineering, model training, evaluation, and visualization.
-Features
+# Vehicle Price Prediction
 
-Data cleaning and handling of missing values.
-Encoding of categorical variables (e.g., make, model, transmission).
-Feature scaling using StandardScaler.
-Training and evaluation of a RandomForestRegressor model.
-Visualization of feature importance.
-Prediction capability for new vehicle data.
-Model and preprocessing objects saved for reuse.
+[![CI](https://github.com/vishavjit-singh/vehicle-price-prediction/actions/workflows/ci.yml/badge.svg)](https://github.com/vishavjit-singh/vehicle-price-prediction/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)
+![scikit-learn](https://img.shields.io/badge/scikit--learn-pipeline-F7931E?logo=scikitlearn&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-Requirements
+Predicts the listing price of a new or near-new vehicle from its make, model, year, powertrain and body. The whole workflow (cleaning, feature engineering, encoding, scaling and the regressor) is a **single scikit-learn pipeline saved as one file**, so whatever you train is exactly what you serve.
 
-Python 3.9 or higher
-Libraries and versions:
-pandas >= 1.5.0
-numpy >= 1.23.0
-scikit-learn >= 1.2.0
-matplotlib >= 3.6.0
-joblib >= 1.2.0
+![Actual vs predicted](docs/images/actual_vs_predicted.png)
 
+## Results
 
-Dataset: dataset.csv (place it in the same directory as the notebook)
+The data is a 2023–2025 US listings dataset: 1,002 rows, 978 usable after removing missing and placeholder prices. It was split 80/20 with a fixed seed.
 
-Install dependencies using:
-pip install pandas>=1.5.0 numpy>=1.23.0 scikit-learn>=1.2.0 matplotlib>=3.6.0 joblib>=1.2.0
+| | v1 (original script) | v2 (this version) |
+|---|---|---|
+| Holdout MAE | $7,071 | **$5,529** |
+| Holdout R² | 0.326 | **0.768** |
+| Holdout MAPE | 14.2% | **10.7%** |
+| Unseen make/model at prediction time | crashes (`LabelEncoder`) | handled |
+| Artifacts to ship | 8 `.pkl` files | 1 `.joblib` pipeline |
 
-Usage
+The v1 numbers come from re-running the original approach on the same split (`baseline_v1` in [`reports/metrics.json`](reports/metrics.json)). All figures are produced by `make all`.
 
-Clone the repository:git clone https://github.com/vishavjit-singh/vehicle-price-prediction.git
+<table>
+<tr>
+<td><img src="docs/images/model_comparison.png" alt="Model comparison"></td>
+<td><img src="docs/images/feature_importance.png" alt="Feature importance"></td>
+</tr>
+</table>
 
+![Error distribution](docs/images/error_distribution.png)
 
-Navigate to the project directory:cd vehicle-price-prediction
+**What the charts show**
 
+- Three models are compared with 5-fold cross-validation, and the winner is chosen automatically by CV error. Regularised linear regression on a log-price target won here. With under 1,000 rows, well-encoded features beat a more complex model.
+- Cylinder count, make, model and fuel type drive price the most. Year matters little because almost every listing is a 2024 model.
+- About half of holdout vehicles are priced within ±10%. The largest misses are rare luxury trims, which have too few examples to learn from.
 
-Ensure dataset.csv is in the directory.
-Open and run vehicle_price_prediction.ipynb in Jupyter Notebook or any compatible environment (Jupyter Notebook >= 6.4.0 recommended).
-The notebook will train the model, display results, and save the model/preprocessing objects.
+## What changed in v2
 
-Files
+| Problem in v1 | Fix |
+|---|---|
+| `LabelEncoder` imposes a fake order on categories and fails on any new make or model | One-hot encoding with rare-category pooling and `handle_unknown` |
+| Preprocessing and model saved separately (8 files) and reassembled by hand | One `Pipeline` + `TransformedTargetRegressor` artifact |
+| Skewed price target fitted directly | Model trained on `log1p(price)` and inverted on output |
+| 38 messy transmission strings encoded as-is | Parsed into gear count + type (automatic / CVT / dual-clutch / manual) |
+| Free-text engine field ignored | Turbo and hybrid flags extracted |
+| A $0 placeholder price used as training data | Prices under $1,000 treated as data errors |
+| Single train/test score, one model | 5-fold CV model selection, holdout metrics, saved report |
+| Notebook-only workflow | CLI, tests, CI, Docker |
 
-vehicle_price_prediction.ipynb: The main Jupyter Notebook with the prediction model (tested with Jupyter Notebook 6.4.0).
-vehicle_price_model.pkl: Saved RandomForestRegressor model.
-scaler.pkl and le_*.pkl: Saved preprocessing objects (scaler and label encoders).
-dataset.csv: Input dataset (to be provided by the user).
+## Quickstart
 
-Results
+```bash
+git clone https://github.com/vishavjit-singh/vehicle-price-prediction.git
+cd vehicle-price-prediction
+pip install -r requirements-dev.txt
 
-The model evaluates performance using Mean Squared Error (MSE) and R² Score.
-Feature importance is visualized to show which factors most influence price predictions.
-Example prediction for a new vehicle is included in the notebook output.
+make all        # train (CV + holdout) and render the charts
+make test       # 8 tests
+```
 
-Contributing
-Feel free to fork this repository, make improvements, and submit pull requests. Issues and suggestions are welcome!
-License
-This project is licensed under the MIT License - see the LICENSE file for details (add a LICENSE file if desired).
-Acknowledgments
+Price a vehicle with the bundled model:
 
-Built using scikit-learn, pandas, and matplotlib.
-Inspired by vehicle price prediction challenges.
+```bash
+PYTHONPATH=src python -m vehicle_price predict \
+  --make Jeep --model Wagoneer --year 2024 --cylinders 6 \
+  --fuel Gasoline --body SUV --drivetrain "Four-wheel Drive"
+# Estimated price: $68,979
+```
 
-Version Information
+Use it from Python:
 
-Project Version: 1.0.0 (Initial release)
-Last Updated: July 01, 2025
+```python
+from vehicle_price.predict import predict
+predict([{"make": "Hyundai", "model": "Tucson", "year": 2024, "fuel": "Hybrid", "body": "SUV"}],
+        "models/vehicle_price_pipeline.joblib")
+```
+
+Docker:
+
+```bash
+docker build -t vehicle-price .
+docker run --rm vehicle-price predict --make Ford --model F-150 --year 2024 --body "Pickup Truck"
+```
+
+## Project structure
+
+```
+├── data/vehicles.csv                 # source dataset
+├── models/vehicle_price_pipeline.joblib
+├── notebooks/exploration.ipynb       # original exploratory notebook (v1)
+├── reports/
+│   ├── metrics.json                  # CV scores, holdout metrics, v1 baseline
+│   └── holdout_predictions.csv
+├── src/vehicle_price/
+│   ├── features.py                   # cleaning + feature engineering
+│   ├── model.py                      # candidate pipelines
+│   ├── train.py                      # CV selection, holdout eval, v1 baseline
+│   ├── predict.py
+│   ├── report.py                     # README charts
+│   └── cli.py
+├── tests/
+└── .github/workflows/ci.yml          # lint, tests, retrain, upload report
+```
+
+## Limitations
+
+- The dataset is small (978 priced rows) and mostly 2024 models, so the model reflects new-vehicle listing prices, not used-car depreciation.
+- Prices are asking prices from listings, not transaction prices.
+- Rare high-end trims are under-predicted. More data per trim, or a trim-level feature, would help.
+
+## Author
+
+**Vishavjit Singh Saini**, Data Engineer · [GitHub](https://github.com/vishavjit-singh) · [LinkedIn](https://www.linkedin.com/in/vishavjit-singh-7011211ab/)
+
+## License
+
+[MIT](LICENSE)
